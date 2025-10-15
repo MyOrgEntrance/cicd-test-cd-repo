@@ -1,0 +1,123 @@
+# cd-repo/.github/workflows/update_and_merge.yml
+name: '2. Update Metadata and Merge'
+
+on:
+  repository_dispatch:
+    types: [trigger-from-ci-repo]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # GitHub Appから認証トークンを生成
+      - name: Generate GitHub App Token
+        id: generate_token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: 'MyOrgEntrance'
+          repositories: 'cicd-test-ci-repo, cicd-test-cd-repo'
+
+      # このトークンがアクセスできるリポジトリ一覧を出力
+      - name: List accessible repositories
+        env:
+          GH_TOKEN: ${{ steps.generate_token.outputs.token }}
+        run: |
+          echo "--- Accessible repositories ---"
+          gh api /installation/repositories | jq -r ".repositories[].full_name"
+          echo "-------------------------------"
+
+      # metadata.yamlのダウンロード
+      - name: Download artifact from app-repo
+        uses: actions/download-artifact@v4
+        with:
+          # 生成したAppトークンを渡す
+          github-token: ${{ steps.generate_token.outputs.token }}
+          # ペイロードから受け取った情報を指定
+          repository: ${{ github.event.client_payload.ci_repo }}
+          run-id: ${{ github.event.client_payload.ci_run_id }}
+          artifact-id: ${{ github.event.client_payload.ci_metadata_art_id }}
+
+      # metadata.yamlの確認
+      - name: Display metadata
+        run: cat metadata.yaml
+  
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     # GitHub Appから認証トークンを生成
+  #     - name: Generate GitHub App Token
+  #       id: generate_token
+  #       uses: actions/create-github-app-token@v2
+  #       with:
+  #         app-id: ${{ secrets.APP_ID }}
+  #         private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+  #     # 生成したトークンを使ってリポジトリをチェックアウト
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #       with:
+  #         token: ${{ steps.generate_token.outputs.token }}
+  #         fetch-depth: 0 # 全ブランチの情報を取得するため
+
+  #     # Gitのコミットユーザー情報を設定
+  #     - name: Configure Git
+  #       run: |
+  #         git config user.name "github-actions[bot]"
+  #         git config user.email "github-actions[bot]@users.noreply.github.com"
+
+  #     # 1. mainブランチからissuesブランチを作成
+  #     - name: Create issues branch
+  #       id: vars
+  #       run: |
+  #         RANDOM_STRING="${{ github.event.client_payload.random_string }}"
+  #         BRANCH_NAME="issues/${RANDOM_STRING}"
+  #         echo "branch_name=${BRANCH_NAME}" >> $GITHUB_OUTPUT
+  #         git checkout -b $BRANCH_NAME main
+
+  #     # 2. 文字列を追記し、コミット＆プッシュ
+  #     - name: Update metadata.yaml and Push
+  #       run: |
+  #         echo "- id: ${{ github.event.client_payload.random_string }}" >> metadata.yaml
+  #         git add metadata.yaml
+  #         git commit -m "feat: Add metadata ID ${{ github.event.client_payload.random_string }}"
+  #         git push origin ${{ steps.vars.outputs.branch_name }}
+
+  #     # 3. issuesブランチからmainブランチへマージ (PR経由)
+  #     - name: Create and Merge PR to main
+  #       env:
+  #         GH_TOKEN: ${{ steps.generate_token.outputs.token }}
+  #         BRANCH_NAME: ${{ steps.vars.outputs.branch_name }}
+  #       run: |
+  #         PR_URL=$(gh pr create \
+  #           --base main \
+  #           --head $BRANCH_NAME \
+  #           --title "feat: Add ID ${{ github.event.client_payload.random_string }}" \
+  #           --body "Auto-generated PR by GitHub Actions.")
+          
+  #         gh pr merge $PR_URL --squash --delete-branch
+
+  #     # 4. mainブランチからrelease/dvifブランチへのPull Requestを作成・マージ
+  #     - name: Create and Merge PR to release/dvif
+  #       env:
+  #         GH_TOKEN: ${{ steps.generate_token.outputs.token }}
+  #       run: |
+  #         # mainとrelease/dvifブランチの最新情報を取得
+  #         git fetch origin main release/dvif
+
+  #         # mainブランチがrelease/dvifブランチより進んでいるコミット数を数える
+  #         COMMITS_AHEAD=$(git rev-list --count origin/release/dvif..origin/main)
+
+  #         # コミット差分がある場合のみPRを作成・マージする
+  #         if [ $COMMITS_AHEAD -gt 0 ]; then
+  #           echo "✅ Found $COMMITS_AHEAD commits to merge from main to release/dvif. Creating PR."
+  #           PR_URL=$(gh pr create \
+  #             --base release/dvif \
+  #             --head main \
+  #             --title "chore: Sync main to release/dvif" \
+  #             --body "Auto-generated PR to sync main branch.")
+            
+  #           gh pr merge $PR_URL --merge
+  #         else
+  #           echo "ℹ️ No new commits to merge from main to release/dvif. Skipping PR creation."
+  #         fi
