@@ -37,11 +37,11 @@ jobs:
           # ペイロードから受け取った情報を指定
           repository: ${{ github.event.client_payload.ci_repo }}
           run-id: ${{ github.event.client_payload.ci_run_id }}
-          artifact-id: ${{ github.event.client_payload.ci_metadata_art_id }}
+          name: ${{ github.event.client_payload.ci_art_metadata_name }}
 
       # metadata.yamlの確認
       - name: Display metadata
-        run: cat metadata.yaml
+        run: ls -l && cat metadata.yaml
   
   #   runs-on: ubuntu-latest
   #   steps:
