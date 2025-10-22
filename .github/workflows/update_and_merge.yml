@@ -134,5 +134,5 @@ jobs:
             echo "Merging PR: $PR_URL"
             gh pr merge $PR_URL --merge
           else
-            echo "ℹ️ No new commits to merge from main to $TARGET_BRANCH. Skipping PR creation."
+            echo "ℹ️ No new commits to merge from main to $TARGET_BRANCH.  Skipping PR creation."
           fi
