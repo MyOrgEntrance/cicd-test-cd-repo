@@ -28,6 +28,13 @@ jobs:
           gh api /installation/repositories | jq -r ".repositories[].full_name"
           echo "-------------------------------"
 
+      # CDリポジトリ　チェックアウト
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.generate_token.outputs.token }}
+          fetch-depth: 0 # 全ブランチの情報を取得するため
+
       # metadata.yamlのダウンロード
       - name: Download artifact from app-repo
         uses: actions/download-artifact@v4
@@ -42,13 +49,6 @@ jobs:
       # metadata.yamlの確認
       - name: Display metadata
         run: ls -l && cat metadata.yaml
-
-      # CDリポジトリ　チェックアウト
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          token: ${{ steps.generate_token.outputs.token }}
-          fetch-depth: 0 # 全ブランチの情報を取得するため
 
       # Gitのコミットユーザー情報を設定
       - name: Configure Git
