@@ -42,82 +42,92 @@ jobs:
       # metadata.yamlの確認
       - name: Display metadata
         run: ls -l && cat metadata.yaml
-  
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     # GitHub Appから認証トークンを生成
-  #     - name: Generate GitHub App Token
-  #       id: generate_token
-  #       uses: actions/create-github-app-token@v2
-  #       with:
-  #         app-id: ${{ secrets.APP_ID }}
-  #         private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
-  #     # 生成したトークンを使ってリポジトリをチェックアウト
-  #     - name: Checkout repository
-  #       uses: actions/checkout@v4
-  #       with:
-  #         token: ${{ steps.generate_token.outputs.token }}
-  #         fetch-depth: 0 # 全ブランチの情報を取得するため
+      # CDリポジトリ　チェックアウト
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.generate_token.outputs.token }}
+          fetch-depth: 0 # 全ブランチの情報を取得するため
 
-  #     # Gitのコミットユーザー情報を設定
-  #     - name: Configure Git
-  #       run: |
-  #         git config user.name "github-actions[bot]"
-  #         git config user.email "github-actions[bot]@users.noreply.github.com"
+      # Gitのコミットユーザー情報を設定
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-  #     # 1. mainブランチからissuesブランチを作成
-  #     - name: Create issues branch
-  #       id: vars
-  #       run: |
-  #         RANDOM_STRING="${{ github.event.client_payload.random_string }}"
-  #         BRANCH_NAME="issues/${RANDOM_STRING}"
-  #         echo "branch_name=${BRANCH_NAME}" >> $GITHUB_OUTPUT
-  #         git checkout -b $BRANCH_NAME main
+      # yqのインストール (metadata.yamlのパース用)
+      - name: Install yq
+        run: |
+          sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq
+          sudo chmod +x /usr/bin/yq
 
-  #     # 2. 文字列を追記し、コミット＆プッシュ
-  #     - name: Update metadata.yaml and Push
-  #       run: |
-  #         echo "- id: ${{ github.event.client_payload.random_string }}" >> metadata.yaml
-  #         git add metadata.yaml
-  #         git commit -m "feat: Add metadata ID ${{ github.event.client_payload.random_string }}"
-  #         git push origin ${{ steps.vars.outputs.branch_name }}
-
-  #     # 3. issuesブランチからmainブランチへマージ (PR経由)
-  #     - name: Create and Merge PR to main
-  #       env:
-  #         GH_TOKEN: ${{ steps.generate_token.outputs.token }}
-  #         BRANCH_NAME: ${{ steps.vars.outputs.branch_name }}
-  #       run: |
-  #         PR_URL=$(gh pr create \
-  #           --base main \
-  #           --head $BRANCH_NAME \
-  #           --title "feat: Add ID ${{ github.event.client_payload.random_string }}" \
-  #           --body "Auto-generated PR by GitHub Actions.")
+      # issuesブランチ作成
+      - name: Create issues branch
+        id: vars
+        run: |
+          # metadata.yamlからランダム文字列を抽出
+          RANDOM_STRING=$(yq '.[] | select(.name == "sample-app") | .random' metadata.yaml)
+          if [ -z "$RANDOM_STRING" ]; then
+            echo "::error::Could not parse RANDOM_STRING from metadata.yaml"
+            exit 1
+          fi
           
-  #         gh pr merge $PR_URL --squash --delete-branch
+          BRANCH_NAME="issues/update-${RANDOM_STRING}"
+          echo "branch_name=${BRANCH_NAME}" >> $GITHUB_OUTPUT
+          echo "random_id=${RANDOM_STRING}" >> $GITHUB_OUTPUT
+          
+          # mainブランチからissuesブランチを作成
+          git checkout -b $BRANCH_NAME main
 
-  #     # 4. mainブランチからrelease/dvifブランチへのPull Requestを作成・マージ
-  #     - name: Create and Merge PR to release/dvif
-  #       env:
-  #         GH_TOKEN: ${{ steps.generate_token.outputs.token }}
-  #       run: |
-  #         # mainとrelease/dvifブランチの最新情報を取得
-  #         git fetch origin main release/dvif
+      # issuesブランチ更新
+      - name: Update metadata.yaml and Push
+        run: |
+          git add metadata.yaml
+          git commit -m "feat: Update metadata.yaml (${{ steps.vars.outputs.random_id }})"
+          git push origin ${{ steps.vars.outputs.branch_name }}
 
-  #         # mainブランチがrelease/dvifブランチより進んでいるコミット数を数える
-  #         COMMITS_AHEAD=$(git rev-list --count origin/release/dvif..origin/main)
 
-  #         # コミット差分がある場合のみPRを作成・マージする
-  #         if [ $COMMITS_AHEAD -gt 0 ]; then
-  #           echo "✅ Found $COMMITS_AHEAD commits to merge from main to release/dvif. Creating PR."
-  #           PR_URL=$(gh pr create \
-  #             --base release/dvif \
-  #             --head main \
-  #             --title "chore: Sync main to release/dvif" \
-  #             --body "Auto-generated PR to sync main branch.")
+      # issuesブランチ -> mainブランチ更新
+      - name: Create and Merge PR to main
+        env:
+          GH_TOKEN: ${{ steps.generate_token.outputs.token }}
+          BRANCH_NAME: ${{ steps.vars.outputs.branch_name }}
+          RANDOM_ID: ${{ steps.vars.outputs.random_id }}
+        run: |
+          echo "✅ Creating PR from $BRANCH_NAME to main."
+          PR_URL=$(gh pr create \
+            --base main \
+            --head $BRANCH_NAME \
+            --title "feat: Update metadata ($RANDOM_ID)" \
+            --body "Auto-generated PR by GitHub Actions to update metadata.yaml.")
+          
+          echo "Merging PR: $PR_URL"
+          gh pr merge $PR_URL --squash --delete-branch
+
+      # main -> releaseブランチ更新
+      - name: Create and Merge PR to release
+        env:
+          GH_TOKEN: ${{ steps.generate_token.outputs.token }}
+        run: |
+          # マージ先ブランチ名を指定 (要求に合わせて "release" に変更)
+          TARGET_BRANCH="release"
+
+          # mainブランチがreleaseブランチより進んでいるコミット数を数える
+          COMMITS_AHEAD=$(git rev-list --count origin/$TARGET_BRANCH..origin/main)
+
+          # コミット差分がある場合のみPRを作成・マージする
+          if [ $COMMITS_AHEAD -gt 0 ]; then
+            echo "✅ Found $COMMITS_AHEAD commits to merge from main to $TARGET_BRANCH. Creating PR."
+            PR_URL=$(gh pr create \
+              --base $TARGET_BRANCH \
+              --head main \
+              --title "chore: Sync main to $TARGET_BRANCH" \
+              --body "Auto-generated PR to sync main branch.")
             
-  #           gh pr merge $PR_URL --merge
-  #         else
-  #           echo "ℹ️ No new commits to merge from main to release/dvif. Skipping PR creation."
-  #         fi
+            echo "Merging PR: $PR_URL"
+            # マージ戦略は --merge (Fast-forwardまたはMerge commit) を使用
+            gh pr merge $PR_URL --merge
+          else
+            echo "ℹ️ No new commits to merge from main to $TARGET_BRANCH. Skipping PR creation."
+          fi
