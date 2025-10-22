@@ -1,12 +1,12 @@
 # cd-repo/.github/workflows/update_and_merge.yml
-name: '2. Update Metadata and Merge'
+name: 'Auto Deploy'
 
 on:
   repository_dispatch:
     types: [trigger-from-ci-repo]
 
 jobs:
-  deploy:
+  auto-deploy:
     runs-on: ubuntu-latest
     steps:
       # GitHub Appから認証トークンを生成
@@ -19,7 +19,7 @@ jobs:
           owner: 'MyOrgEntrance'
           repositories: 'cicd-test-ci-repo, cicd-test-cd-repo'
 
-      # このトークンがアクセスできるリポジトリ一覧を出力
+      # 上記の認証トークンがアクセス可能なリポジトリ一覧を出力
       - name: List accessible repositories
         env:
           GH_TOKEN: ${{ steps.generate_token.outputs.token }}
@@ -29,14 +29,14 @@ jobs:
           echo "-------------------------------"
 
       # CDリポジトリ　チェックアウト
-      - name: Checkout repository
+      - name: Checkout cd repository
         uses: actions/checkout@v4
         with:
           token: ${{ steps.generate_token.outputs.token }}
           fetch-depth: 0 # 全ブランチの情報を取得するため
 
       # metadata.yamlのダウンロード
-      - name: Download artifact from app-repo
+      - name: Download artifact from metadata.yaml
         uses: actions/download-artifact@v4
         with:
           # 生成したAppトークンを渡す
@@ -46,9 +46,12 @@ jobs:
           run-id: ${{ github.event.client_payload.ci_run_id }}
           name: ${{ github.event.client_payload.ci_art_metadata_name }}
 
-      # metadata.yamlの確認
+      # metadata.yamlの内容確認
       - name: Display metadata
-        run: ls -l && cat metadata.yaml
+        run: |
+          echo "--- metadata.yaml ---"
+          cat metadata.yaml
+          echo "---------------------"
 
       # Gitのコミットユーザー情報を設定
       - name: Configure Git
@@ -73,32 +76,32 @@ jobs:
             exit 1
           fi
           
-          BRANCH_NAME="issues/update-${RANDOM_STRING}"
-          echo "branch_name=${BRANCH_NAME}" >> $GITHUB_OUTPUT
+          ISSUES_BRANCH_NAME="issues/auto-deploy-${RANDOM_STRING}"
+          echo "issues_branch_name=${ISSUES_BRANCH_NAME}" >> $GITHUB_OUTPUT
           echo "random_id=${RANDOM_STRING}" >> $GITHUB_OUTPUT
           
           # mainブランチからissuesブランチを作成
-          git checkout -b $BRANCH_NAME main
+          git checkout -b $ISSUES_BRANCH_NAME main
 
       # issuesブランチ更新
       - name: Update metadata.yaml and Push
         run: |
           git add metadata.yaml
           git commit -m "feat: Update metadata.yaml (${{ steps.vars.outputs.random_id }})"
-          git push origin ${{ steps.vars.outputs.branch_name }}
+          git push origin ${{ steps.vars.outputs.issues_branch_name }}
 
 
       # issuesブランチ -> mainブランチ更新
       - name: Create and Merge PR to main
         env:
           GH_TOKEN: ${{ steps.generate_token.outputs.token }}
-          BRANCH_NAME: ${{ steps.vars.outputs.branch_name }}
+          ISSUES_BRANCH_NAME: ${{ steps.vars.outputs.issues_branch_name }}
           RANDOM_ID: ${{ steps.vars.outputs.random_id }}
         run: |
-          echo "✅ Creating PR from $BRANCH_NAME to main."
+          echo "✅ Creating PR from $ISSUES_BRANCH_NAME to main."
           PR_URL=$(gh pr create \
             --base main \
-            --head $BRANCH_NAME \
+            --head $ISSUES_BRANCH_NAME \
             --title "feat: Update metadata ($RANDOM_ID)" \
             --body "Auto-generated PR by GitHub Actions to update metadata.yaml.")
           
@@ -110,8 +113,11 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.generate_token.outputs.token }}
         run: |
-          # マージ先ブランチ名を指定 (要求に合わせて "release" に変更)
           TARGET_BRANCH="release"
+
+          # PRマージ後の最新のmainとreleaseの状態を取得
+          echo "Fetching latest state of main and $TARGET_BRANCH branches..."
+          git fetch origin main $TARGET_BRANCH
 
           # mainブランチがreleaseブランチより進んでいるコミット数を数える
           COMMITS_AHEAD=$(git rev-list --count origin/$TARGET_BRANCH..origin/main)
@@ -126,7 +132,6 @@ jobs:
               --body "Auto-generated PR to sync main branch.")
             
             echo "Merging PR: $PR_URL"
-            # マージ戦略は --merge (Fast-forwardまたはMerge commit) を使用
             gh pr merge $PR_URL --merge
           else
             echo "ℹ️ No new commits to merge from main to $TARGET_BRANCH. Skipping PR creation."
