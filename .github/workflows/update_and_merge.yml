@@ -106,7 +106,7 @@ jobs:
             --body "Auto-generated PR by GitHub Actions to update metadata.yaml.")
           
           echo "Merging PR: $PR_URL"
-          gh pr merge $PR_URL --squash --delete-branch
+          gh pr merge $PR_URL --merge --delete-branch
 
       # main -> releaseブランチ更新
       - name: Create and Merge PR to release
