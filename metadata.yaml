@@ -1,5 +1,5 @@
 ---
 - name: sample-app
-  random: 1761217811-8b0cca4a
+  random: 1761917980-def24c07
   repository: MyOrgEntrance/cicd-test-ci-repo
   commitid: b870ea3884fe3d3f9b92ddba2d60218f4d2f9197
